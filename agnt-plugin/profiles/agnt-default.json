@@ -1,0 +1,85 @@
+{
+  "profiles": [
+    {
+      "id": "agnt_cpu_load",
+      "label": "AGNT CPU Load",
+      "provider": "system",
+      "variable": "cpu_load",
+      "samples": 6,
+      "alerts": [
+        {
+          "metric": "mean",
+          "op": ">=",
+          "threshold": 90,
+          "severity": "warning",
+          "message": "CPU load is elevated before agent execution."
+        }
+      ]
+    },
+    {
+      "id": "agnt_memory_used",
+      "label": "AGNT Memory Used",
+      "provider": "system",
+      "variable": "memory_used_percent",
+      "samples": 6,
+      "alerts": [
+        {
+          "metric": "mean",
+          "op": ">=",
+          "threshold": 92,
+          "severity": "critical",
+          "message": "Memory pressure is high before agent execution."
+        }
+      ]
+    },
+    {
+      "id": "agnt_disk_free",
+      "label": "AGNT Disk Free",
+      "provider": "system",
+      "variable": "disk_free_percent",
+      "path": ".",
+      "samples": 6,
+      "alerts": [
+        {
+          "metric": "mean",
+          "op": "<=",
+          "threshold": 8,
+          "severity": "critical",
+          "message": "Disk free percentage is low."
+        }
+      ]
+    },
+    {
+      "id": "agnt_loopback_latency",
+      "label": "AGNT Loopback TCP Latency",
+      "provider": "ping",
+      "host": "127.0.0.1",
+      "port": 80,
+      "count": 4
+    },
+    {
+      "id": "agnt_cloudflare_latency",
+      "label": "AGNT External TCP Latency",
+      "provider": "ping",
+      "host": "1.1.1.1",
+      "port": 443,
+      "count": 6,
+      "alerts": [
+        {
+          "metric": "mean",
+          "op": ">=",
+          "threshold": 600,
+          "severity": "warning",
+          "message": "External TCP latency is elevated."
+        }
+      ]
+    },
+    {
+      "id": "pulsemesh_repo_pulse",
+      "label": "PulseMesh GitHub Pulse",
+      "provider": "github",
+      "repo": "jacksonjp0311-gif/PulseMesh",
+      "metric": "stars"
+    }
+  ]
+}

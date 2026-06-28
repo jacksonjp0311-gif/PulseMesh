@@ -137,6 +137,33 @@ pulsemesh demo --profiles examples\profiles.rich.json --out runs --cache-dir run
 
 ---
 
+## AGNT Plugin
+
+PulseMesh also ships an AGNT plugin bridge in [agnt-plugin](agnt-plugin). It exposes PulseMesh as a tool surface for agent workflows:
+
+| AGNT Tool | Purpose |
+|---|---|
+| `pulsemesh-demo` | Run the full telemetry workflow |
+| `pulsemesh-run` | Run a selected profile |
+| `pulsemesh-status` | Summarize latest mesh health, alerts, fallback use, and highest anomaly |
+| `pulsemesh-gate` | Return `go`, `warn`, or `hold` before an agent proceeds |
+| `pulsemesh-dashboard` | Render the HTML dashboard |
+| `pulsemesh-compare` | Compare recent telemetry runs |
+| `pulsemesh-providers` | List available telemetry providers |
+| `pulsemesh-validate` | Validate profile or summary contracts |
+
+Build the installable package:
+
+```powershell
+cd agnt-plugin
+npm install
+npm run build
+```
+
+The build emits `agnt-plugin/dist/pulsemesh.agnt` and vendors the PulseMesh Python core so AGNT can run the tools outside the source checkout.
+
+---
+
 ## Metrics
 
 Every sensor is normalized with a robust median/MAD baseline and converted into comparable metrics:

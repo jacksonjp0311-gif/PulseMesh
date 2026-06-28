@@ -1,0 +1,140 @@
+{
+  "name": "pulsemesh",
+  "displayName": "PulseMesh",
+  "version": "0.1.0",
+  "description": "Local-first telemetry sensorium for AGNT. Runs live, cached, and synthetic telemetry meshes; emits summaries, dashboards, reports, baselines, history, comparisons, and gate decisions for agent workflows.",
+  "author": "James Paul Jackson",
+  "icon": "PM",
+  "homepage": "https://github.com/jacksonjp0311-gif/PulseMesh",
+  "category": "observability",
+  "tags": [
+    "telemetry",
+    "observability",
+    "agents",
+    "sensorium",
+    "anomaly-detection",
+    "baselines",
+    "dashboard",
+    "local-first",
+    "system-health",
+    "network-health"
+  ],
+  "type": "module",
+  "main": "./pulsemesh-agnt.js",
+  "bin": {
+    "pulsemesh-agnt": "./pulsemesh-agnt.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "tools": [
+    {
+      "type": "pulsemesh-demo",
+      "entryPoint": "./pulsemesh-agnt.js",
+      "schema": {
+        "title": "PulseMesh Demo Workflow",
+        "description": "Run the full PulseMesh workflow and emit summary, report, dashboard, baseline, and history artifacts.",
+        "parameters": {
+          "profiles": { "type": "string", "description": "Profile JSON path. Defaults to the bundled AGNT profile." },
+          "out": { "type": "string", "default": "runs/agnt", "description": "Output directory for run artifacts." },
+          "max_points": { "type": "number", "default": 256, "description": "Maximum samples per sensor." },
+          "timeout": { "type": "number", "default": 12, "description": "Provider timeout in seconds." },
+          "no_plots": { "type": "boolean", "default": true, "description": "Skip matplotlib plots for faster AGNT runs." }
+        }
+      }
+    },
+    {
+      "type": "pulsemesh-run",
+      "entryPoint": "./pulsemesh-agnt.js",
+      "schema": {
+        "title": "PulseMesh Run",
+        "description": "Run one telemetry mesh from a profile file and return structured artifact paths.",
+        "parameters": {
+          "profiles": { "type": "string", "required": true, "description": "Profile JSON path." },
+          "out": { "type": "string", "default": "runs/agnt", "description": "Output directory for run artifacts." },
+          "run_id": { "type": "string", "description": "Optional deterministic run id." },
+          "max_points": { "type": "number", "default": 256 },
+          "timeout": { "type": "number", "default": 12 },
+          "no_plots": { "type": "boolean", "default": true }
+        }
+      }
+    },
+    {
+      "type": "pulsemesh-status",
+      "entryPoint": "./pulsemesh-agnt.js",
+      "schema": {
+        "title": "PulseMesh Latest Status",
+        "description": "Read the latest PulseMesh run and return mesh health, alerts, fallback status, and highest anomaly.",
+        "parameters": {
+          "runs_dir": { "type": "string", "default": "runs/agnt", "description": "Runs directory containing ledger.jsonl." }
+        }
+      }
+    },
+    {
+      "type": "pulsemesh-gate",
+      "entryPoint": "./pulsemesh-agnt.js",
+      "schema": {
+        "title": "PulseMesh Agent Gate",
+        "description": "Return go, warn, or hold based on latest telemetry health, anomalies, alerts, and fallback usage.",
+        "parameters": {
+          "runs_dir": { "type": "string", "default": "runs/agnt" },
+          "min_health": { "type": "number", "default": 0.55, "description": "Hold below this mesh health score." },
+          "warn_health": { "type": "number", "default": 0.72, "description": "Warn below this mesh health score." },
+          "max_anomaly": { "type": "number", "default": 0.85, "description": "Hold at or above this anomaly score." },
+          "warn_anomaly": { "type": "number", "default": 0.65, "description": "Warn at or above this anomaly score." },
+          "hold_on_critical": { "type": "boolean", "default": true, "description": "Hold when critical alerts are present." },
+          "warn_on_fallback": { "type": "boolean", "default": true, "description": "Warn when any sensor used fallback data." }
+        }
+      }
+    },
+    {
+      "type": "pulsemesh-dashboard",
+      "entryPoint": "./pulsemesh-agnt.js",
+      "schema": {
+        "title": "PulseMesh Dashboard",
+        "description": "Render or locate a self-contained PulseMesh HTML dashboard.",
+        "parameters": {
+          "summary": { "type": "string", "description": "Summary JSON path. Defaults to latest run summary." },
+          "out": { "type": "string", "description": "Dashboard output path. Defaults beside the summary." },
+          "runs_dir": { "type": "string", "default": "runs/agnt" },
+          "refresh_seconds": { "type": "number", "default": 60 }
+        }
+      }
+    },
+    {
+      "type": "pulsemesh-compare",
+      "entryPoint": "./pulsemesh-agnt.js",
+      "schema": {
+        "title": "PulseMesh Compare",
+        "description": "Compare two PulseMesh summaries, or the two most recent runs.",
+        "parameters": {
+          "before": { "type": "string", "description": "Older summary JSON path." },
+          "after": { "type": "string", "description": "Newer summary JSON path." },
+          "out": { "type": "string", "description": "Comparison output JSON path." },
+          "runs_dir": { "type": "string", "default": "runs/agnt" }
+        }
+      }
+    },
+    {
+      "type": "pulsemesh-providers",
+      "entryPoint": "./pulsemesh-agnt.js",
+      "schema": {
+        "title": "PulseMesh Providers",
+        "description": "List supported PulseMesh telemetry providers.",
+        "parameters": {}
+      }
+    },
+    {
+      "type": "pulsemesh-validate",
+      "entryPoint": "./pulsemesh-agnt.js",
+      "schema": {
+        "title": "PulseMesh Validate",
+        "description": "Validate a PulseMesh profile or summary JSON artifact.",
+        "parameters": {
+          "profiles": { "type": "string", "description": "Profile JSON path." },
+          "summary": { "type": "string", "description": "Summary JSON path." }
+        }
+      }
+    }
+  ]
+}

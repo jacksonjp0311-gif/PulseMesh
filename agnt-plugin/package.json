@@ -1,0 +1,22 @@
+{
+  "name": "pulsemesh-agnt-plugin",
+  "version": "0.1.0",
+  "description": "AGNT plugin bridge for PulseMesh telemetry tools.",
+  "type": "module",
+  "main": "pulsemesh-agnt.js",
+  "bin": {
+    "pulsemesh-agnt": "./pulsemesh-agnt.js"
+  },
+  "scripts": {
+    "start": "node pulsemesh-agnt.js",
+    "demo": "node pulsemesh-agnt.js demo",
+    "status": "node pulsemesh-agnt.js status",
+    "gate": "node pulsemesh-agnt.js gate",
+    "providers": "node pulsemesh-agnt.js providers",
+    "build": "node scripts/build.js"
+  },
+  "dependencies": {
+    "tar": "^7.4.3"
+  },
+  "devDependencies": {}
+}
