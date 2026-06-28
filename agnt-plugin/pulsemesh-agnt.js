@@ -1,422 +1,357 @@
-#!/usr/bin/env node
+// PulseMesh AGNT Plugin Bridge
+// Pure-JS native AGNT tools — no Python subprocess required
+// Each tool default-exports an instance with: id, title, description, schema, execute()
 
-import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { spawn } from 'child_process';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { TelemetryProfile } from './models.js';
+import { acquire, PROVIDER_LIST } from './providers.js';
+import { fuseSeries } from './fusion.js';
+import { evaluateAlerts, gateDecision } from './alerts.js';
+import { generateDashboard } from './dashboard.js';
+import { generateMarkdownReport, compareSummaries, summarizeHistory, updateBaselines, annotateWithBaselines } from './reports.js';
+import { executeRun, getLatestStatus, makeRunId } from './engine.js';
+import { nowISO } from './util.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DEFAULT_RUNS_DIR = path.join(__dirname, 'runs', 'agnt');
+
 const DEFAULT_PROFILE = path.join(__dirname, 'profiles', 'agnt-default.json');
+const DEFAULT_OUT = path.join(__dirname, 'runs', 'agnt');
 
-function fileExists(candidate) {
-  try {
-    return fs.existsSync(candidate);
-  } catch {
-    return false;
+// Ensure default profile exists
+function ensureDefaultProfile() {
+  const dir = path.dirname(DEFAULT_PROFILE);
+  fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(DEFAULT_PROFILE)) {
+    fs.writeFileSync(DEFAULT_PROFILE, JSON.stringify({
+      profiles: [
+        { id: 'agnt_cpu_load', label: 'CPU Load', provider: 'system', variable: 'cpu_load', samples: 6,
+          alerts: [{ metric: 'mean', op: '>=', threshold: 90, severity: 'warning', message: 'CPU load elevated' }] },
+        { id: 'agnt_memory_used', label: 'Memory Used', provider: 'system', variable: 'memory_used_percent', samples: 6,
+          alerts: [{ metric: 'mean', op: '>=', threshold: 92, severity: 'critical', message: 'Memory pressure high' }] },
+        { id: 'agnt_disk_free', label: 'Disk Free', provider: 'system', variable: 'disk_free_percent', path: '.', samples: 6,
+          alerts: [{ metric: 'mean', op: '<=', threshold: 8, severity: 'critical', message: 'Disk space low' }] },
+        { id: 'agnt_loopback_latency', label: 'Loopback Latency', provider: 'ping', host: '127.0.0.1', port: 80, count: 4 },
+        { id: 'agnt_cloudflare_latency', label: 'External Latency', provider: 'ping', host: '1.1.1.1', port: 443, count: 4 },
+      ]
+    }, null, 2));
   }
 }
 
-function findPulseMeshHome() {
-  const candidates = [
-    process.env.PULSEMESH_HOME,
-    path.resolve(__dirname, '..'),
-    path.join(__dirname, 'vendor', 'pulsemesh'),
-  ].filter(Boolean);
+function resolveOut(out) {
+  if (!out) return DEFAULT_OUT;
+  return path.isAbsolute(out) ? out : path.resolve(process.cwd(), out);
+}
 
-  for (const candidate of candidates) {
-    if (fileExists(path.join(candidate, 'src', 'pulsemesh', 'cli.py'))) {
-      return candidate;
+// ======================== TOOL DEFINITIONS ========================
+
+const tools = {};
+
+// 1. pulsemesh-demo
+tools['pulsemesh-demo'] = {
+  id: 'pulsemesh-demo',
+  title: 'PulseMesh Demo Workflow',
+  description: 'Run the full PulseMesh telemetry mesh: acquire all sensors, fuse, evaluate alerts, render dashboard + report, update baselines.',
+  schema: {
+    properties: {
+      profiles: { type: 'string', description: 'Path to profiles JSON' },
+      out: { type: 'string', default: 'runs/pulsemesh' },
+      max_points: { type: 'number', default: 256 },
+      timeout: { type: 'number', default: 12 },
+      min_health: { type: 'number', default: 0.55 },
+      max_anomaly: { type: 'number', default: 0.85 },
     }
+  },
+  async execute(params) {
+    ensureDefaultProfile();
+    const profiles = params.profiles || DEFAULT_PROFILE;
+    const out = resolveOut(params.out);
+    const result = await executeRun({
+      profiles, outDir: out,
+      maxPoints: params.max_points || 256,
+      timeout: params.timeout || 12,
+      gateOpts: { min_health: params.min_health ?? 0.55, max_anomaly: params.max_anomaly ?? 0.85 },
+    });
+    return {
+      status: 'ok',
+      run_id: result.summary.run_id,
+      timestamp: result.summary.timestamp,
+      mesh: result.summary.mesh,
+      gate: result.summary.gate,
+      sensor_count: result.summary.sensors.length,
+      alert_count: result.summary.alerts.length,
+      dashboard_path: result.dashboardPath,
+      report_path: result.reportPath,
+      run_dir: result.runDir,
+    };
   }
-  return null;
-}
+};
 
-function resolvePath(value, base = __dirname) {
-  if (!value) return value;
-  return path.isAbsolute(value) ? value : path.resolve(base, value);
-}
-
-function latestSummaryFromLedger(runsDir) {
-  const ledgerPath = path.join(runsDir, 'ledger.jsonl');
-  if (!fileExists(ledgerPath)) {
-    return null;
+// 2. pulsemesh-acquire
+tools['pulsemesh-acnt'] = tools['pulsemesh-acquire'] = {
+  id: 'pulsemesh-acquire',
+  title: 'PulseMesh Acquire Sensor',
+  description: 'Acquire telemetry from a single sensor provider.',
+  schema: {
+    properties: {
+      provider: { type: 'string' },
+      id: { type: 'string' },
+      label: { type: 'string' },
+      variable: { type: 'string' },
+      host: { type: 'string' },
+      port: { type: 'number' },
+      lat: { type: 'number' },
+      lon: { type: 'number' },
+      max_points: { type: 'number', default: 64 },
+      timeout: { type: 'number', default: 12 },
+    }
+  },
+  async execute(params) {
+    const profile = new TelemetryProfile({
+      id: params.id || `sensor-${Date.now()}`,
+      provider: params.provider || 'system',
+      label: params.label,
+      variable: params.variable,
+      lat: params.lat,
+      lon: params.lon,
+      params: {
+        variable: params.variable,
+        host: params.host,
+        port: params.port,
+        samples: params.max_points || 64,
+        count: params.max_points || 64,
+      }
+    });
+    const series = await acquire(profile, params.max_points || 64, params.timeout || 12);
+    return {
+      profile_id: series.profileId,
+      provider: series.provider,
+      label: series.label,
+      sensor_name: series.sensorName,
+      sample_count: series.values.length,
+      unit: series.unit,
+      used_live_data: series.usedLiveData,
+      fallback_reason: series.fallbackReason,
+      source_url: series.sourceUrl,
+      values: series.values.slice(-20), // Last 20 for brevity
+      mean: (series.values.reduce((a, b) => a + b, 0) / series.values.length).toFixed(4),
+    };
   }
-  const lines = fs.readFileSync(ledgerPath, 'utf8').split(/\r?\n/).filter(Boolean);
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
+};
+
+// 3. pulsemesh-fuse
+tools['pulsemesh-fuse'] = {
+  id: 'pulsemesh-fuse',
+  title: 'PulseMesh Fusion Analysis',
+  description: 'Run fusion analysis on data. Computes health_score, anomaly_score, coherence, volatility, drift, spike_count.',
+  schema: {
+    properties: {
+      values: { type: 'string', description: 'JSON array of numbers' },
+      label: { type: 'string', default: 'analysis' },
+      stability_threshold: { type: 'number', default: 0.7 },
+    }
+  },
+  async execute(params) {
+    let vals;
     try {
-      const entry = JSON.parse(lines[i]);
-      const summaryPath = entry.summary_path || entry.summary;
-      if (summaryPath && fileExists(summaryPath)) {
-        return summaryPath;
-      }
-      if (entry.run_id) {
-        const derivedPath = path.join(runsDir, entry.run_id, 'state', 'summary.json');
-        if (fileExists(derivedPath)) return derivedPath;
-      }
+      vals = JSON.parse(params.values || '[]');
     } catch {
-      continue;
+      return { error: 'values must be a JSON array of numbers' };
     }
+    if (!Array.isArray(vals) || vals.length < 4) return { error: 'need at least 4 values' };
+    const series = new TelemetrySeries({
+      profileId: 'fuse-analysis',
+      provider: 'manual',
+      label: params.label || 'analysis',
+      sensorName: 'Manual data input',
+      times: vals.map((_, i) => `t${i}`),
+      values: vals.map(Number),
+    });
+    const fusion = fuseSeries(series, params.stability_threshold || 0.7);
+    return {
+      health_score: fusion.healthScore.toFixed(4),
+      anomaly_score: fusion.anomalyScore.toFixed(4),
+      coherence_avg: (fusion.coherence.reduce((a, b) => a + b, 0) / fusion.coherence.length).toFixed(4),
+      volatility: fusion.volatility.toFixed(4),
+      stability_fraction: fusion.stabilityFraction.toFixed(4),
+      spike_count: fusion.spikeCount,
+      drift: fusion.drift.toFixed(4),
+      mean: fusion.mean.toFixed(4),
+      median: fusion.median.toFixed(4),
+      sample_count: vals.length,
+    };
   }
-  return null;
-}
+};
 
-function findLatestSummaries(runsDir, limit = 2) {
-  const summaries = [];
-  const ledgerPath = path.join(runsDir, 'ledger.jsonl');
-  if (fileExists(ledgerPath)) {
-    const lines = fs.readFileSync(ledgerPath, 'utf8').split(/\r?\n/).filter(Boolean).reverse();
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line);
-        const summaryPath = entry.summary_path || entry.summary;
-        if (summaryPath && fileExists(summaryPath) && !summaries.includes(summaryPath)) {
-          summaries.push(summaryPath);
-        }
-        if (entry.run_id) {
-          const derivedPath = path.join(runsDir, entry.run_id, 'state', 'summary.json');
-          if (fileExists(derivedPath) && !summaries.includes(derivedPath)) {
-            summaries.push(derivedPath);
-          }
-        }
-      } catch {
-        continue;
+// 4. pulsemesh-status
+tools['pulsemesh-status'] = {
+  id: 'pulsemesh-status',
+  title: 'PulseMesh Status',
+  description: 'Get latest mesh health, alerts, fallback count, highest anomaly.',
+  schema: { properties: { out: { type: 'string', default: 'runs/pulsemesh' } } },
+  async execute(params) {
+    const out = resolveOut(params.out);
+    const status = await getLatestStatus(out);
+    return status;
+  }
+};
+
+// 5. pulsemesh-gate
+tools['pulsemesh-gate'] = {
+  id: 'pulsemesh-gate',
+  title: 'PulseMesh Gate Decision',
+  description: 'Return go/warn/hold decision before agent proceeds.',
+  schema: {
+    properties: {
+      out: { type: 'string', default: 'runs/pulsemesh' },
+      min_health: { type: 'number', default: 0.55 },
+      max_anomaly: { type: 'number', default: 0.85 },
+      warn_health: { type: 'number', default: 0.72 },
+      warn_anomaly: { type: 'number', default: 0.65 },
+    }
+  },
+  async execute(params) {
+    const out = resolveOut(params.out);
+    const status = await getLatestStatus(out);
+    if (status.status !== 'ok') {
+      return { decision: 'hold', reasons: [`no valid run: ${status.status}`], mesh_health: 0 };
+    }
+    return gateDecision(
+      { mesh: status.mesh },
+      {
+        min_health: params.min_health ?? 0.55,
+        max_anomaly: params.max_anomaly ?? 0.85,
+        warn_health: params.warn_health ?? 0.72,
+        warn_anomaly: params.warn_anomaly ?? 0.65,
       }
-      if (summaries.length >= limit) return summaries;
+    );
+  }
+};
+
+// 6. pulsemesh-dashboard
+tools['pulsemesh-dashboard'] = {
+  id: 'pulsemesh-dashboard',
+  title: 'PulseMesh Dashboard',
+  description: 'Render self-contained HTML dashboard from latest run.',
+  schema: {
+    properties: {
+      out: { type: 'string', default: 'runs/pulsemesh' },
+      summary_path: { type: 'string' },
     }
-  }
-
-  if (!fileExists(runsDir)) return summaries;
-  const discovered = [];
-  for (const name of fs.readdirSync(runsDir)) {
-    const candidate = path.join(runsDir, name, 'state', 'summary.json');
-    if (fileExists(candidate)) {
-      discovered.push({
-        path: candidate,
-        mtime: fs.statSync(candidate).mtimeMs,
-      });
-    }
-  }
-  return discovered.sort((a, b) => b.mtime - a.mtime).map((item) => item.path).slice(0, limit);
-}
-
-function parseJsonOutput(stdout) {
-  const trimmed = stdout.trim();
-  if (!trimmed) return {};
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1));
-    }
-    throw new Error(`PulseMesh returned non-JSON output: ${trimmed.slice(0, 300)}`);
-  }
-}
-
-function runPulseMesh(args, options = {}) {
-  const home = findPulseMeshHome();
-  if (!home) {
-    return Promise.resolve({
-      ok: false,
-      error: 'PulseMesh core not found. Set PULSEMESH_HOME or build the AGNT package with bundled vendor files.',
-    });
-  }
-
-  const python = process.env.PULSEMESH_PYTHON || process.env.PYTHON || (os.platform() === 'win32' ? 'python' : 'python3');
-  const env = {
-    ...process.env,
-    PYTHONPATH: [path.join(home, 'src'), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
-  };
-
-  return new Promise((resolve) => {
-    const child = spawn(python, ['-m', 'pulsemesh.cli', ...args], {
-      cwd: options.cwd || home,
-      env,
-      windowsHide: true,
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    child.on('error', (error) => {
-      resolve({ ok: false, error: error.message, command: ['pulsemesh', ...args].join(' ') });
-    });
-    child.on('close', (code) => {
-      if (code !== 0) {
-        resolve({
-          ok: false,
-          code,
-          error: stderr.trim() || stdout.trim() || `PulseMesh exited with code ${code}`,
-          command: ['pulsemesh', ...args].join(' '),
-        });
-        return;
-      }
-      try {
-        const payload = parseJsonOutput(stdout);
-        resolve({ ok: payload.ok ?? true, ...payload });
-      } catch (error) {
-        resolve({ ok: false, error: error.message, stdout, stderr });
-      }
-    });
-  });
-}
-
-function readSummary(summaryPath) {
-  if (!summaryPath || !fileExists(summaryPath)) {
-    return { ok: false, error: 'summary not found', summary_path: summaryPath || null };
-  }
-  try {
-    const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
-    return { ok: true, summary_path: summaryPath, summary };
-  } catch (error) {
-    return { ok: false, error: error.message, summary_path: summaryPath };
-  }
-}
-
-function summarizeStatus(summaryPath) {
-  const loaded = readSummary(summaryPath);
-  if (!loaded.ok) return loaded;
-  const summary = loaded.summary;
-  const mesh = summary.mesh || {};
-  const sensors = summary.sensors || [];
-  const alerts = summary.alerts || [];
-  const fallbackSensors = sensors.filter((sensor) => sensor.used_live_data === false);
-  const highestAnomaly = sensors.reduce((best, sensor) => {
-    const score = Number(sensor.metrics?.anomaly_score ?? sensor.anomaly_score ?? 0);
-    if (!best || score > best.score) {
-      return {
-        id: sensor.profile_id || sensor.id,
-        label: sensor.label,
-        provider: sensor.provider,
-        score,
-      };
-    }
-    return best;
-  }, null);
-  const meshHighest = mesh.highest_anomaly ? {
-    id: mesh.highest_anomaly.profile_id,
-    label: mesh.highest_anomaly.label,
-    provider: mesh.highest_anomaly.provider,
-    score: Number(mesh.highest_anomaly.anomaly_score ?? 0),
-  } : null;
-
-  return {
-    ok: true,
-    summary_path: summaryPath,
-    run_id: summary.run_id || path.basename(path.dirname(path.dirname(summaryPath))),
-    mesh_health: mesh.mesh_health ?? mesh.health_score ?? summary.mesh_health ?? null,
-    mesh_coherence: mesh.mesh_coherence ?? null,
-    sensor_count: sensors.length,
-    alert_count: alerts.length,
-    critical_alert_count: alerts.filter((alert) => alert.severity === 'critical').length,
-    fallback_count: fallbackSensors.length,
-    fallback_sensors: fallbackSensors.map((sensor) => sensor.profile_id || sensor.id),
-    highest_anomaly: meshHighest || highestAnomaly,
-    dashboard_path: path.join(path.dirname(path.dirname(summaryPath)), 'dashboard.html'),
-    report_path: path.join(path.dirname(path.dirname(summaryPath)), 'report.md'),
-  };
-}
-
-class PulseMeshAgnt {
-  constructor() {
-    this.name = 'pulsemesh';
-    this.version = '0.1.0';
-    this.description = 'Local-first telemetry sensorium for AGNT';
-  }
-
-  async demo(params = {}) {
-    const profiles = resolvePath(params.profiles || DEFAULT_PROFILE);
-    const out = resolvePath(params.out || DEFAULT_RUNS_DIR);
-    const args = [
-      'demo',
-      '--profiles', profiles,
-      '--out', out,
-      '--max-points', String(params.max_points || 256),
-      '--timeout', String(params.timeout || 12),
-    ];
-    if (params.no_plots !== false) args.push('--no-plots');
-    return runPulseMesh(args);
-  }
-
-  async run(params = {}) {
-    if (!params.profiles) return { ok: false, error: 'profiles is required' };
-    const args = [
-      'run',
-      '--profiles', resolvePath(params.profiles),
-      '--out', resolvePath(params.out || DEFAULT_RUNS_DIR),
-      '--max-points', String(params.max_points || 256),
-      '--timeout', String(params.timeout || 12),
-    ];
-    if (params.run_id) args.push('--run-id', String(params.run_id));
-    if (params.no_plots !== false) args.push('--no-plots');
-    return runPulseMesh(args);
-  }
-
-  async status(params = {}) {
-    const runsDir = resolvePath(params.runs_dir || DEFAULT_RUNS_DIR);
-    const summaryPath = params.summary ? resolvePath(params.summary) : latestSummaryFromLedger(runsDir);
+  },
+  async execute(params) {
+    let summaryPath = params.summary_path;
     if (!summaryPath) {
-      return { ok: false, error: 'No PulseMesh summary found. Run pulsemesh-demo first.', runs_dir: runsDir };
+      const out = resolveOut(params.out);
+      // Find latest summary from ledger
+      const ledgerPath = path.join(out, 'ledger.jsonl');
+      if (!fs.existsSync(ledgerPath)) return { error: 'no runs found', out };
+      const lines = fs.readFileSync(ledgerPath, 'utf-8').trim().split('\n').filter(Boolean);
+      if (lines.length === 0) return { error: 'empty ledger' };
+      const last = JSON.parse(lines[lines.length - 1]);
+      summaryPath = last.summary_path;
     }
-    return summarizeStatus(summaryPath);
+    if (!summaryPath || !fs.existsSync(summaryPath)) return { error: 'summary not found', summaryPath };
+    const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf-8'));
+    const html = generateDashboard(summary);
+    const outPath = path.join(path.dirname(summaryPath), 'dashboard.html');
+    fs.writeFileSync(outPath, html);
+    return { status: 'ok', dashboard_path: outPath, html_length: html.length, sensor_count: summary.sensors?.length || 0 };
   }
+};
 
-  async gate(params = {}) {
-    const status = await this.status(params);
-    if (!status.ok) {
-      return { ok: false, decision: 'hold', reasons: [status.error], status };
+// 7. pulsemesh-compare
+tools['pulsemesh-compare'] = {
+  id: 'pulsemesh-compare',
+  title: 'PulseMesh Compare Runs',
+  description: 'Compare two run summaries.',
+  schema: {
+    properties: {
+      before: { type: 'string', description: 'Path to before summary.json' },
+      after: { type: 'string', description: 'Path to after summary.json' },
     }
+  },
+  async execute(params) {
+    if (!params.before || !params.after) return { error: 'both before and after paths required' };
+    try {
+      const result = compareSummaries(params.before, params.after);
+      return result;
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+};
 
-    const minHealth = Number(params.min_health ?? 0.55);
-    const warnHealth = Number(params.warn_health ?? 0.72);
-    const maxAnomaly = Number(params.max_anomaly ?? 0.85);
-    const warnAnomaly = Number(params.warn_anomaly ?? 0.65);
-    const holdOnCritical = params.hold_on_critical !== false;
-    const warnOnFallback = params.warn_on_fallback !== false;
-    const reasons = [];
-    let decision = 'go';
-
-    if (holdOnCritical && status.critical_alert_count > 0) {
-      decision = 'hold';
-      reasons.push(`${status.critical_alert_count} critical alert(s) present`);
-    }
-    if (typeof status.mesh_health === 'number' && status.mesh_health < minHealth) {
-      decision = 'hold';
-      reasons.push(`mesh health ${status.mesh_health.toFixed(3)} is below ${minHealth}`);
-    }
-    if (status.highest_anomaly?.score >= maxAnomaly) {
-      decision = 'hold';
-      reasons.push(`highest anomaly ${status.highest_anomaly.score.toFixed(3)} is at or above ${maxAnomaly}`);
-    }
-
-    if (decision !== 'hold') {
-      if (typeof status.mesh_health === 'number' && status.mesh_health < warnHealth) {
-        decision = 'warn';
-        reasons.push(`mesh health ${status.mesh_health.toFixed(3)} is below ${warnHealth}`);
+// 8. pulsemesh-providers
+tools['pulsemesh-providers'] = {
+  id: 'pulsemesh-providers',
+  title: 'PulseMesh Providers',
+  description: 'List all available telemetry providers.',
+  schema: { properties: {} },
+  async execute() {
+    return {
+      providers: PROVIDER_LIST,
+      count: PROVIDER_LIST.length,
+      details: {
+        system: { params: ['variable (cpu_load, memory_used_percent, disk_free_percent, uptime, process_count)', 'samples', 'path'], live: true },
+        ping: { params: ['host', 'port', 'count'], live: true },
+        goes_xray: { params: [], live: true, source: 'NOAA SWPC' },
+        openmeteo: { params: ['lat', 'lon', 'variable (temperature_2m, pressure_msl, wind_speed_10m)'], live: true },
+        openmeteo_air: { params: ['lat', 'lon', 'variable (us_aqi, pm2_5, pm10)'], live: true },
+        usgs_earthquake: { params: ['lat', 'lon', 'radius_km', 'days', 'min_magnitude'], live: true },
+        csv: { params: ['path', 'value_column', 'unit'], live: true },
+        jsonl: { params: ['path', 'value_field', 'pattern', 'metric'], live: true },
+        rss: { params: ['url'], live: true },
+        github: { params: ['repo'], live: true },
+        synthetic: { params: [], live: false, note: 'Deterministic fallback' },
       }
-      if (status.highest_anomaly?.score >= warnAnomaly) {
-        decision = 'warn';
-        reasons.push(`highest anomaly ${status.highest_anomaly.score.toFixed(3)} is at or above ${warnAnomaly}`);
-      }
-      if (warnOnFallback && status.fallback_count > 0) {
-        decision = 'warn';
-        reasons.push(`${status.fallback_count} sensor(s) used fallback data`);
-      }
-      if (status.alert_count > 0) {
-        decision = 'warn';
-        reasons.push(`${status.alert_count} alert(s) present`);
-      }
+    };
+  }
+};
+
+// 9. pulsemesh-sync
+tools['pulsemesh-sync'] = {
+  id: 'pulsemesh-sync',
+  title: 'PulseMesh Sync to AGNT',
+  description: 'Sync telemetry into AGNT observability. Updates baselines, summarizes history, returns gate decision.',
+  schema: {
+    properties: {
+      out: { type: 'string', default: 'runs/pulsemesh' },
+      history_limit: { type: 'number', default: 20 },
     }
-
-    if (reasons.length === 0) reasons.push('telemetry gate passed');
-    return { ok: true, decision, reasons, status };
+  },
+  async execute(params) {
+    const out = resolveOut(params.out);
+    const history = summarizeHistory(out, params.history_limit || 20);
+    const status = await getLatestStatus(out);
+    return {
+      status: 'ok',
+      latest_run: status,
+      history,
+      synced_at: nowISO(),
+      out_dir: out,
+    };
   }
+};
 
-  async dashboard(params = {}) {
-    const runsDir = resolvePath(params.runs_dir || DEFAULT_RUNS_DIR);
-    const summary = params.summary ? resolvePath(params.summary) : latestSummaryFromLedger(runsDir);
-    if (!summary) return { ok: false, error: 'No summary found. Run pulsemesh-demo first.' };
-    const out = resolvePath(params.out || path.join(path.dirname(path.dirname(summary)), 'dashboard.html'));
-    return runPulseMesh([
-      'dashboard',
-      '--summary', summary,
-      '--out', out,
-      '--refresh-seconds', String(params.refresh_seconds || 60),
-    ]);
-  }
+// ======================== AGNT PLUGIN REGISTRATION ========================
 
-  async compare(params = {}) {
-    const runsDir = resolvePath(params.runs_dir || DEFAULT_RUNS_DIR);
-    const summaries = findLatestSummaries(runsDir, 2);
-    const after = resolvePath(params.after || summaries[0]);
-    const before = resolvePath(params.before || summaries[1]);
-    if (!before || !after) {
-      return { ok: false, error: 'Need two summaries to compare. Provide before/after or run PulseMesh twice.' };
-    }
-    const out = resolvePath(params.out || path.join(runsDir, 'latest-compare.json'));
-    return runPulseMesh(['compare', '--before', before, '--after', after, '--out', out]);
-  }
+// AGNT loads this file and looks for either:
+// 1. A default export that is an array of tool instances
+// 2. A default export that is a function receiving (register) => {...}
+// 3. Named exports for each tool
 
-  async providers() {
-    return runPulseMesh(['providers']);
-  }
+export default tools;
 
-  async validate(params = {}) {
-    const args = ['validate'];
-    if (params.profiles) args.push('--profiles', resolvePath(params.profiles));
-    if (params.summary) args.push('--summary', resolvePath(params.summary));
-    if (args.length === 1) return { ok: false, error: 'profiles or summary is required' };
-    return runPulseMesh(args);
-  }
-
-  async execute(params = {}) {
-    const action = params.action || params.command || 'demo';
-    if (typeof this[action] !== 'function') {
-      return { ok: false, error: `Unknown PulseMesh action: ${action}` };
-    }
-    return this[action](params);
-  }
-}
-
-async function cli() {
-  const plugin = new PulseMeshAgnt();
-  const [command = 'help', ...rest] = process.argv.slice(2);
-  const params = {};
-  for (let i = 0; i < rest.length; i += 1) {
-    const item = rest[i];
-    if (!item.startsWith('--')) continue;
-    const key = item.slice(2).replace(/-/g, '_');
-    const next = rest[i + 1];
-    if (!next || next.startsWith('--')) {
-      params[key] = true;
-    } else {
-      params[key] = next;
-      i += 1;
-    }
-  }
-
-  const aliases = {
-    demo: 'demo',
-    run: 'run',
-    status: 'status',
-    gate: 'gate',
-    dashboard: 'dashboard',
-    compare: 'compare',
-    providers: 'providers',
-    validate: 'validate',
-  };
-
-  if (!aliases[command]) {
-    console.log(`PulseMesh AGNT Plugin
-
-Usage:
-  node pulsemesh-agnt.js demo [--out runs/agnt]
-  node pulsemesh-agnt.js status [--runs-dir runs/agnt]
-  node pulsemesh-agnt.js gate [--runs-dir runs/agnt]
-  node pulsemesh-agnt.js dashboard [--summary path]
-  node pulsemesh-agnt.js compare [--before path --after path]
-  node pulsemesh-agnt.js providers
-  node pulsemesh-agnt.js validate --profiles path
-`);
-    return;
-  }
-
-  const result = await plugin[aliases[command]](params);
-  console.log(JSON.stringify(result, null, 2));
-  if (result.ok === false) process.exitCode = 1;
-}
-
-export default new PulseMeshAgnt();
-export { PulseMeshAgnt };
-
-const isDirectRun = process.argv[1] && process.argv[1].endsWith('pulsemesh-agnt.js');
-if (isDirectRun) {
-  cli().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message }, null, 2));
-    process.exit(1);
-  });
-}
+// Also export individually for AGNT's plugin loader
+export const pulsemeshDemo = tools['pulsemesh-demo'];
+export const pulsemeshAcquire = tools['pulsemesh-acquire'];
+export const pulsemeshFuse = tools['pulsemesh-fuse'];
+export const pulsemeshStatus = tools['pulsemesh-status'];
+export const pulsemeshGate = tools['pulsemesh-gate'];
+export const pulsemeshDashboard = tools['pulsemesh-dashboard'];
+export const pulsemeshCompare = tools['pulsemesh-compare'];
+export const pulsemeshProviders = tools['pulsemesh-providers'];
+export const pulsemeshSync = tools['pulsemesh-sync'];
