@@ -10,7 +10,7 @@ from .util import now_iso, write_json, write_jsonl
 
 def write_series_csv(path: Path, series: TelemetrySeries, fusion: FusionResult) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows = zip(series.times, series.values, fusion.normalized, fusion.delta, fusion.coherence)
+    rows = zip(series.times, series.values, fusion.normalized, fusion.delta, fusion.coherence, strict=False)
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["time", "value", "normalized", "delta", "coherence"])

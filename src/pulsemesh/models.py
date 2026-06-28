@@ -15,7 +15,7 @@ class TelemetryProfile:
     params: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, obj: dict[str, Any]) -> "TelemetryProfile":
+    def from_dict(cls, obj: dict[str, Any]) -> TelemetryProfile:
         params = dict(obj)
         known = {k: params.pop(k, None) for k in ("id", "provider", "label", "lat", "lon", "variable")}
         if not known["id"]:

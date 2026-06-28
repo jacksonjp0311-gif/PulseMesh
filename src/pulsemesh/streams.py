@@ -61,7 +61,6 @@ def fetch_rss(profile: TelemetryProfile, max_points: int, timeout: float) -> Tel
     values: list[float] = []
     times: list[str] = []
     for i, item in enumerate(items[-max_points:]):
-        title = "".join(item.findtext("title") or "")
         body = " ".join(item.itertext())
         if keyword:
             values.append(float(body.lower().count(keyword)))

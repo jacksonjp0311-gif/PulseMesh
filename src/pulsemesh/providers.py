@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import csv
 import math
 import urllib.parse
-import csv
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Callable
 
 from .cache import load_series, save_series
 from .local import fetch_ping, fetch_system
@@ -221,7 +221,7 @@ def fetch_local_csv(profile: TelemetryProfile, max_points: int, _: float) -> Tel
 
     values: list[float] = []
     times: list[str] = []
-    with open(str(path_value), "r", encoding="utf-8-sig", newline="") as f:
+    with open(str(path_value), encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         if not reader.fieldnames or value_column not in reader.fieldnames:
             raise ValueError(f"CSV file must include value column '{value_column}'")
