@@ -6,6 +6,8 @@ import csv
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
+from .cache import load_series, save_series
+from .local import fetch_ping, fetch_system
 from .models import TelemetryProfile, TelemetrySeries
 from .synthetic import synthetic_series
 from .util import fetch_json, finite_float
@@ -13,7 +15,7 @@ from .util import fetch_json, finite_float
 Provider = Callable[[TelemetryProfile, int, float], TelemetrySeries]
 
 
-def acquire(profile: TelemetryProfile, max_points: int = 512, timeout: float = 12.0) -> TelemetrySeries:
+def acquire(profile: TelemetryProfile, max_points: int = 512, timeout: float = 12.0, cache_dir=None) -> TelemetrySeries:
     provider = profile.provider.lower()
     try:
         if provider in {"goes_xray", "solar_goes_xray"}:
@@ -26,11 +28,26 @@ def acquire(profile: TelemetryProfile, max_points: int = 512, timeout: float = 1
             return fetch_usgs_earthquakes(profile, max_points, timeout)
         if provider in {"csv", "local_csv"}:
             return fetch_local_csv(profile, max_points, timeout)
+        if provider in {"system", "local_system"}:
+            return fetch_system(profile, max_points, timeout)
+        if provider in {"ping", "tcp_ping", "latency"}:
+            return fetch_ping(profile, max_points, timeout)
         if provider in {"synthetic", "demo"}:
             return synthetic_series(profile, "requested synthetic provider", max_points)
         raise ValueError(f"unknown provider: {profile.provider}")
     except Exception as exc:
+        if cache_dir is not None:
+            cached = load_series(cache_dir, profile.id, f"{type(exc).__name__}: {exc}")
+            if cached is not None:
+                return cached
         return synthetic_series(profile, f"{type(exc).__name__}: {exc}", max_points)
+
+
+def acquire_with_cache(profile: TelemetryProfile, max_points: int = 512, timeout: float = 12.0, cache_dir=None) -> TelemetrySeries:
+    series = acquire(profile, max_points=max_points, timeout=timeout, cache_dir=cache_dir)
+    if cache_dir is not None and series.used_live_data:
+        save_series(cache_dir, series)
+    return series
 
 
 def fetch_goes_xray(profile: TelemetryProfile, max_points: int, timeout: float) -> TelemetrySeries:

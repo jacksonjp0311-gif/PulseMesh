@@ -1,0 +1,106 @@
+{
+  "profiles": [
+    {
+      "id": "solar_xray",
+      "label": "Solar X-ray Flux",
+      "provider": "goes_xray",
+      "transform": "log10",
+      "alerts": [
+        {
+          "metric": "anomaly_score",
+          "op": ">=",
+          "threshold": 0.65,
+          "severity": "warning",
+          "message": "Solar telemetry anomaly score is elevated."
+        }
+      ]
+    },
+    {
+      "id": "nyc_temperature",
+      "label": "NYC Temperature",
+      "provider": "openmeteo",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "variable": "temperature_2m"
+    },
+    {
+      "id": "nyc_pressure",
+      "label": "NYC Pressure",
+      "provider": "openmeteo",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "variable": "pressure_msl"
+    },
+    {
+      "id": "nyc_air_quality",
+      "label": "NYC Air Quality",
+      "provider": "openmeteo_air",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "variable": "us_aqi",
+      "alerts": [
+        {
+          "metric": "health_score",
+          "op": "<=",
+          "threshold": 0.50,
+          "severity": "critical",
+          "message": "Air quality stream health is degraded."
+        }
+      ]
+    },
+    {
+      "id": "regional_quakes",
+      "label": "Regional Earthquake Magnitudes",
+      "provider": "usgs_earthquake",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "radius_km": 2500,
+      "days": 14,
+      "min_magnitude": 1.0
+    },
+    {
+      "id": "cloudflare_latency",
+      "label": "Cloudflare TCP Latency",
+      "provider": "ping",
+      "host": "1.1.1.1",
+      "port": 443,
+      "count": 12,
+      "alerts": [
+        {
+          "metric": "mean",
+          "op": ">=",
+          "threshold": 500,
+          "severity": "warning",
+          "message": "TCP probe latency average is high."
+        }
+      ]
+    },
+    {
+      "id": "local_disk_free",
+      "label": "Local Disk Free",
+      "provider": "system",
+      "variable": "disk_free_percent",
+      "path": ".",
+      "samples": 8,
+      "alerts": [
+        {
+          "metric": "mean",
+          "op": "<=",
+          "threshold": 10,
+          "severity": "critical",
+          "message": "Disk free percentage is low."
+        }
+      ]
+    },
+    {
+      "id": "bench_sensor",
+      "label": "Bench Sensor CSV",
+      "provider": "csv",
+      "path": "examples/sample_sensor.csv",
+      "time_column": "time",
+      "value_column": "value",
+      "unit": "arb"
+    }
+  ]
+}
+
