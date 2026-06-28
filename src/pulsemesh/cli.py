@@ -175,6 +175,20 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("--limit", type=int, default=20)
     history.set_defaults(func=history_summary)
 
+    demo = sub.add_parser("demo", help="Run the complete PulseMesh workflow and emit all artifact paths.")
+    demo.add_argument("--profiles", default="examples/profiles.rich.json")
+    demo.add_argument("--out", default="runs")
+    demo.add_argument("--run-id")
+    demo.add_argument("--cache-dir")
+    demo.add_argument("--baseline")
+    demo.add_argument("--baseline-window", type=int, default=50)
+    demo.add_argument("--max-points", type=int, default=512)
+    demo.add_argument("--timeout", type=float, default=12.0)
+    demo.add_argument("--stability-threshold", type=float, default=0.70)
+    demo.add_argument("--refresh-seconds", type=int, default=60)
+    demo.add_argument("--no-plots", action="store_true")
+    demo.set_defaults(func=demo_workflow)
+
     providers = sub.add_parser("providers", help="List supported telemetry providers.")
     providers.set_defaults(func=list_providers)
     return parser
@@ -240,6 +254,53 @@ def history_summary(args: argparse.Namespace) -> int:
     else:
         write_history_json(runs_dir, out, limit=args.limit)
     print(json.dumps({"history_path": args.out}, indent=2, sort_keys=True))
+    return 0
+
+
+def demo_workflow(args: argparse.Namespace) -> int:
+    profile_path = Path(args.profiles)
+    validation_errors = validate_profiles_file(profile_path)
+    if validation_errors:
+        print(json.dumps({"ok": False, "errors": validation_errors}, indent=2, sort_keys=True), file=sys.stderr)
+        return 1
+
+    out_dir = Path(args.out)
+    baseline_path = Path(args.baseline) if args.baseline else out_dir / "baseline.json"
+    cache_dir = Path(args.cache_dir) if args.cache_dir else out_dir / ".cache"
+
+    args.cache_dir = str(cache_dir)
+    args.baseline = str(baseline_path) if baseline_path.exists() else None
+    args.update_baseline = str(baseline_path)
+    args.run_id = args.run_id or make_run_id(prefix="demo")
+
+    payload = execute_run(args)
+    summary_path = Path(payload["summary_path"])
+    run_dir = Path(payload["run_dir"])
+    report_path = run_dir / "report.md"
+    dashboard_path = run_dir / "dashboard.html"
+    history_json = out_dir / "history.json"
+    history_md = out_dir / "history.md"
+
+    write_markdown_report(summary_path, report_path)
+    write_html_dashboard(summary_path, dashboard_path, refresh_seconds=args.refresh_seconds)
+    write_history_json(out_dir, history_json, limit=20)
+    write_history_markdown(out_dir, history_md, limit=20)
+
+    result = {
+        "ok": True,
+        "run_id": args.run_id,
+        "run_dir": str(run_dir),
+        "summary_path": str(summary_path),
+        "baseline_path": str(baseline_path),
+        "report_path": str(report_path),
+        "dashboard_path": str(dashboard_path),
+        "history_json": str(history_json),
+        "history_markdown": str(history_md),
+        "alert_count": payload.get("alert_count", 0),
+        "mesh_health": payload.get("mesh_health"),
+        "sensor_count": payload.get("sensor_count"),
+    }
+    print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
 

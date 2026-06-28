@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PulseMesh Baseline",
+  "type": "object",
+  "required": ["version", "sensors"],
+  "properties": {
+    "version": { "type": "string" },
+    "updated_at": { "type": ["string", "null"] },
+    "sensors": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["profile_id", "samples"],
+        "properties": {
+          "profile_id": { "type": "string" },
+          "label": { "type": "string" },
+          "provider": { "type": "string" },
+          "samples": { "type": "array" },
+          "stats": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
+

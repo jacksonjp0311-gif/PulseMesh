@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PulseMesh Provider Result",
+  "type": "object",
+  "required": ["profile_id", "provider", "label", "sensor_name", "times", "values"],
+  "properties": {
+    "profile_id": { "type": "string", "minLength": 1 },
+    "provider": { "type": "string", "minLength": 1 },
+    "label": { "type": "string" },
+    "sensor_name": { "type": "string" },
+    "times": { "type": "array", "items": { "type": "string" } },
+    "values": { "type": "array", "items": { "type": "number" } },
+    "unit": { "type": "string" },
+    "used_live_data": { "type": "boolean" },
+    "fallback_reason": { "type": ["string", "null"] },
+    "source_url": { "type": ["string", "null"] },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": true
+}
+

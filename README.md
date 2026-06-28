@@ -72,9 +72,9 @@ From the repository root:
 
 ```powershell
 cd C:\Users\jacks\OneDrive\Desktop\PulseMesh
-$env:PYTHONPATH='src'
-python -m pulsemesh.cli providers
-python -m pulsemesh.cli run --profiles examples\profiles.rich.json --out runs --run-id rich-demo --no-plots
+.\scripts\install-dev.ps1
+pulsemesh providers
+pulsemesh demo --profiles examples\profiles.rich.json --out runs --no-plots
 ```
 
 Install as an editable local CLI:
@@ -87,8 +87,10 @@ pulsemesh run --profiles examples\profiles.rich.json --out runs
 Optional plotting support:
 
 ```powershell
-python -m pip install -e ".[visuals]"
+.\scripts\install-dev.ps1 -WithVisuals
 ```
+
+The `demo` command is the recommended first run. It validates profiles, runs telemetry, updates baseline, writes report/dashboard/history, and prints all artifact paths.
 
 ## Example Workflows
 
@@ -182,6 +184,17 @@ Profiles are JSON objects under a top-level `profiles` array.
 
 Unknown fields are preserved as provider parameters, so provider-specific options can live directly in each profile.
 
+## Contracts
+
+Stable artifact contracts are documented in [docs/contracts](docs/contracts/README.md):
+
+- profile contract
+- provider result contract
+- summary contract
+- baseline contract
+
+Machine-readable schemas live in [schemas](schemas).
+
 ## Output Layout
 
 ```text
@@ -246,16 +259,15 @@ python -m pip install -e ".[mqtt,serial]"
 ## Development
 
 ```powershell
-$env:PYTHONPATH='src'
-python -m unittest discover -s tests -v
-python -m compileall -q src tests
+.\scripts\test.ps1
 ```
+
+See [docs/operator-guide.md](docs/operator-guide.md) for install and operating workflows.
 
 ## Project Status
 
 PulseMesh is currently a local research/operator tool. The next professional milestones are:
 
-- provider plugin interface
 - provider plugin interface
 - packaged releases
 - richer HTML dashboard filtering/search
