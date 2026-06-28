@@ -9,6 +9,7 @@ from typing import Callable
 from .cache import load_series, save_series
 from .local import fetch_ping, fetch_system
 from .models import TelemetryProfile, TelemetrySeries
+from .streams import fetch_github_repo, fetch_jsonl_log, fetch_mqtt_snapshot, fetch_rss, fetch_serial_snapshot
 from .synthetic import synthetic_series
 from .util import fetch_json, finite_float
 
@@ -32,6 +33,16 @@ def acquire(profile: TelemetryProfile, max_points: int = 512, timeout: float = 1
             return fetch_system(profile, max_points, timeout)
         if provider in {"ping", "tcp_ping", "latency"}:
             return fetch_ping(profile, max_points, timeout)
+        if provider in {"jsonl", "log", "log_tail"}:
+            return fetch_jsonl_log(profile, max_points, timeout)
+        if provider in {"rss", "feed"}:
+            return fetch_rss(profile, max_points, timeout)
+        if provider in {"github", "github_repo"}:
+            return fetch_github_repo(profile, max_points, timeout)
+        if provider == "mqtt":
+            return fetch_mqtt_snapshot(profile, max_points, timeout)
+        if provider == "serial":
+            return fetch_serial_snapshot(profile, max_points, timeout)
         if provider in {"synthetic", "demo"}:
             return synthetic_series(profile, "requested synthetic provider", max_points)
         raise ValueError(f"unknown provider: {profile.provider}")

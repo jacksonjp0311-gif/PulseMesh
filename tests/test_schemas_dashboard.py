@@ -41,12 +41,13 @@ class SchemaDashboardTests(unittest.TestCase):
                 }],
             })
 
-            write_html_dashboard(summary, out)
+            write_html_dashboard(summary, out, refresh_seconds=30)
 
             self.assertTrue(out.exists())
-            self.assertIn("PulseMesh Dashboard", out.read_text(encoding="utf-8"))
+            html = out.read_text(encoding="utf-8")
+            self.assertIn("PulseMesh Dashboard", html)
+            self.assertIn("refresh", html)
 
 
 if __name__ == "__main__":
     unittest.main()
-

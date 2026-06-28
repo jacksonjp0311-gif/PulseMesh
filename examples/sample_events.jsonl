@@ -1,0 +1,7 @@
+{"time":"2026-01-01T00:00:00Z","level":"info","latency_ms":120}
+{"time":"2026-01-01T00:01:00Z","level":"warn","latency_ms":240}
+{"time":"2026-01-01T00:02:00Z","level":"error","latency_ms":800}
+{"time":"2026-01-01T00:03:00Z","level":"info","latency_ms":130}
+{"time":"2026-01-01T00:04:00Z","level":"error","latency_ms":760}
+{"time":"2026-01-01T00:05:00Z","level":"info","latency_ms":115}
+

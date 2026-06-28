@@ -12,6 +12,7 @@ from .artifacts import sensor_state, write_plot, write_run, write_series_csv
 from .baselines import annotate_summary_with_baselines, update_baselines_from_summary
 from .dashboard import write_html_dashboard
 from .fusion import fuse_series, summarize_mesh
+from .history import write_history_json, write_history_markdown
 from .models import TelemetryProfile
 from .providers import acquire_with_cache
 from .reports import write_compare_json, write_markdown_report
@@ -95,6 +96,11 @@ def list_providers(_: argparse.Namespace) -> int:
         "csv": "Local CSV sensor. Requires path. Optional value_column, time_column, unit.",
         "system": "Local system telemetry. Variables: cpu_load, load1, process_count, disk_free_percent, disk_used_percent, memory_used_percent, memory_free_percent, battery_percent, uptime_hours, net_bytes_sent, net_bytes_recv.",
         "ping": "TCP latency probe. Params: host, port, count.",
+        "jsonl": "Local JSONL/log tail. Params: path, value_field or pattern, metric.",
+        "rss": "RSS/Atom feed pulse. Params: url, optional keyword.",
+        "github": "GitHub repository telemetry. Params: repo, metric.",
+        "mqtt": "MQTT snapshot. Requires optional dependency paho-mqtt. Params: host, port, topic.",
+        "serial": "Serial snapshot. Requires optional dependency pyserial. Params: port, baud.",
         "synthetic": "Deterministic synthetic fallback/demo series.",
     }
     print(json.dumps(providers, indent=2, sort_keys=True))
@@ -142,6 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard = sub.add_parser("dashboard", help="Render a self-contained HTML dashboard from a summary JSON.")
     dashboard.add_argument("--summary", required=True)
     dashboard.add_argument("--out", required=True)
+    dashboard.add_argument("--refresh-seconds", type=int)
     dashboard.set_defaults(func=dashboard_summary)
 
     compare = sub.add_parser("compare", help="Compare two PulseMesh summary JSON files.")
@@ -160,6 +167,13 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--profiles")
     validate.add_argument("--summary")
     validate.set_defaults(func=validate_file)
+
+    history = sub.add_parser("history", help="Summarize run history from a runs directory ledger.")
+    history.add_argument("--runs-dir", default="runs")
+    history.add_argument("--out", required=True)
+    history.add_argument("--format", choices=["json", "md"], default="json")
+    history.add_argument("--limit", type=int, default=20)
+    history.set_defaults(func=history_summary)
 
     providers = sub.add_parser("providers", help="List supported telemetry providers.")
     providers.set_defaults(func=list_providers)
@@ -185,7 +199,7 @@ def report_summary(args: argparse.Namespace) -> int:
 
 
 def dashboard_summary(args: argparse.Namespace) -> int:
-    write_html_dashboard(Path(args.summary), Path(args.out))
+    write_html_dashboard(Path(args.summary), Path(args.out), refresh_seconds=args.refresh_seconds)
     print(json.dumps({"dashboard_path": args.out}, indent=2, sort_keys=True))
     return 0
 
@@ -216,6 +230,17 @@ def validate_file(args: argparse.Namespace) -> int:
         errors.append("provide --profiles or --summary")
     print(json.dumps({"ok": not errors, "errors": errors}, indent=2, sort_keys=True))
     return 0 if not errors else 1
+
+
+def history_summary(args: argparse.Namespace) -> int:
+    runs_dir = Path(args.runs_dir)
+    out = Path(args.out)
+    if args.format == "md":
+        write_history_markdown(runs_dir, out, limit=args.limit)
+    else:
+        write_history_json(runs_dir, out, limit=args.limit)
+    print(json.dumps({"history_path": args.out}, indent=2, sort_keys=True))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

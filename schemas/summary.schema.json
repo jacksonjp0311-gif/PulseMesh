@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PulseMesh Summary",
+  "type": "object",
+  "required": ["mesh", "sensors"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "timestamp": { "type": "string" },
+    "mesh": { "type": "object" },
+    "alerts": { "type": "array" },
+    "sensors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["profile_id", "provider", "metrics"],
+        "properties": {
+          "profile_id": { "type": "string" },
+          "provider": { "type": "string" },
+          "label": { "type": "string" },
+          "used_live_data": { "type": "boolean" },
+          "metrics": { "type": "object" },
+          "baseline": { "type": "object" },
+          "artifacts": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
+

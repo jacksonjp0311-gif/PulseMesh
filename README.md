@@ -29,6 +29,11 @@ PulseMesh does not claim prediction, safety, consciousness, autonomy, or product
 | `ping` | TCP latency probe | Params: `host`, `port`, `count` |
 | `system` | Local system telemetry | Variables: `cpu_load`, `process_count`, `disk_free_percent`, `disk_used_percent` |
 | `csv` | Local sensor-log ingestion | Params: `path`, `value_column`, `time_column`, `unit` |
+| `jsonl` | Local JSONL/log tail | Params: `path`, `value_field` or `pattern` |
+| `rss` | RSS/Atom feed pulse | Params: `url`, optional `keyword` |
+| `github` | GitHub repository telemetry | Params: `repo`, `metric` |
+| `mqtt` | MQTT snapshot | Requires `paho-mqtt`; params: `host`, `port`, `topic` |
+| `serial` | Serial snapshot | Requires `pyserial`; params: `port`, `baud` |
 | `synthetic` | Deterministic demo/fallback stream | Stable fallback for offline runs |
 
 ### Commands
@@ -43,6 +48,7 @@ PulseMesh does not claim prediction, safety, consciousness, autonomy, or product
 | `pulsemesh compare` | Compare two run summaries and write drift deltas |
 | `pulsemesh baseline` | Update a rolling baseline from a summary |
 | `pulsemesh validate` | Validate profile and summary JSON shape |
+| `pulsemesh history` | Summarize recent runs from `ledger.jsonl` |
 
 ### Metrics
 
@@ -125,7 +131,13 @@ python -m pulsemesh.cli report --summary runs\rich-demo\state\summary.json --out
 Create an HTML dashboard:
 
 ```powershell
-python -m pulsemesh.cli dashboard --summary runs\rich-demo\state\summary.json --out runs\rich-demo\dashboard.html
+python -m pulsemesh.cli dashboard --summary runs\rich-demo\state\summary.json --out runs\rich-demo\dashboard.html --refresh-seconds 60
+```
+
+Summarize run history:
+
+```powershell
+python -m pulsemesh.cli history --runs-dir runs --out runs\history.md --format md --limit 20
 ```
 
 Compare two runs:
@@ -211,6 +223,26 @@ python -m pulsemesh.cli run --profiles examples\profiles.rich.json --out runs --
 
 When a baseline is supplied, each sensor receives `baseline.deltas` and `baseline.zscores` for tracked metrics such as health, anomaly, coherence, volatility, drift, and mean value.
 
+## Dashboard
+
+The HTML dashboard is self-contained and works from the local filesystem. It includes:
+
+- auto-refresh support
+- mesh summary cards
+- alert badges
+- live/fallback labels
+- inline SVG sparklines from per-sensor CSV artifacts
+- sensor detail cards
+- baseline delta coloring
+
+## Ingestion Expansion
+
+`examples\profiles.ingestion.json` shows JSONL, RSS, and GitHub profile examples. MQTT and serial providers are available when their optional packages are installed:
+
+```powershell
+python -m pip install -e ".[mqtt,serial]"
+```
+
 ## Development
 
 ```powershell
@@ -224,8 +256,8 @@ python -m compileall -q src tests
 PulseMesh is currently a local research/operator tool. The next professional milestones are:
 
 - provider plugin interface
-- richer persistent baselines
-- HTML dashboard polish
-- MQTT/serial ingestion
-- packaged CI workflow
-- schema validation for profiles and summaries
+- provider plugin interface
+- packaged releases
+- richer HTML dashboard filtering/search
+- long-running service mode
+- webhook/email alert delivery

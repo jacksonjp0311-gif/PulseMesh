@@ -49,6 +49,13 @@ def fetch_json(url: str, timeout: float = 12.0) -> Any:
     return json.loads(raw.decode("utf-8", errors="replace"))
 
 
+def fetch_text(url: str, timeout: float = 12.0) -> str:
+    req = Request(url, headers={"User-Agent": "PulseMesh/0.1 telemetry research tool"})
+    with urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+    return raw.decode("utf-8", errors="replace")
+
+
 def finite_float(value: Any) -> float | None:
     try:
         out = float(value)
@@ -61,4 +68,3 @@ def finite_float(value: Any) -> float | None:
 
 def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
-
