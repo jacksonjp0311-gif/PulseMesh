@@ -9,10 +9,13 @@ from pathlib import Path
 
 from .alerts import evaluate_alerts
 from .artifacts import sensor_state, write_plot, write_run, write_series_csv
+from .baselines import annotate_summary_with_baselines, update_baselines_from_summary
+from .dashboard import write_html_dashboard
 from .fusion import fuse_series, summarize_mesh
 from .models import TelemetryProfile
 from .providers import acquire_with_cache
 from .reports import write_compare_json, write_markdown_report
+from .schemas import validate_profiles_file, validate_summary_file
 from .util import load_json, write_json
 
 
@@ -75,6 +78,10 @@ def execute_run(args: argparse.Namespace) -> dict:
     summary = load_json(summary_path)
     summary["alerts"] = alerts
     write_json(summary_path, summary)
+    if getattr(args, "baseline", None):
+        annotate_summary_with_baselines(summary_path, Path(args.baseline))
+    if getattr(args, "update_baseline", None):
+        update_baselines_from_summary(summary_path, Path(args.update_baseline), window=args.baseline_window)
     payload["alert_count"] = len(alerts)
     return payload
 
@@ -86,7 +93,7 @@ def list_providers(_: argparse.Namespace) -> int:
         "openmeteo_air": "Open-Meteo air quality. Requires lat/lon. Variables include us_aqi, european_aqi, pm10, pm2_5, carbon_monoxide, ozone, nitrogen_dioxide.",
         "usgs_earthquake": "USGS event magnitudes. Optional lat/lon/radius_km, days, min_magnitude.",
         "csv": "Local CSV sensor. Requires path. Optional value_column, time_column, unit.",
-        "system": "Local system telemetry. Variables: cpu_load, load1, process_count, disk_free_percent, disk_used_percent.",
+        "system": "Local system telemetry. Variables: cpu_load, load1, process_count, disk_free_percent, disk_used_percent, memory_used_percent, memory_free_percent, battery_percent, uptime_hours, net_bytes_sent, net_bytes_recv.",
         "ping": "TCP latency probe. Params: host, port, count.",
         "synthetic": "Deterministic synthetic fallback/demo series.",
     }
@@ -105,6 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-points", type=int, default=512, help="Maximum samples per sensor.")
     run.add_argument("--timeout", type=float, default=12.0, help="HTTP timeout in seconds.")
     run.add_argument("--cache-dir", help="Cache directory for last-good live sensor data.")
+    run.add_argument("--baseline", help="Read a baseline JSON and annotate this run with historical deltas.")
+    run.add_argument("--update-baseline", help="Update a baseline JSON from this run after writing artifacts.")
+    run.add_argument("--baseline-window", type=int, default=50, help="Samples retained per sensor when updating baseline.")
     run.add_argument("--stability-threshold", type=float, default=0.70, help="Coherence threshold for stability fraction.")
     run.add_argument("--no-plots", action="store_true", help="Skip matplotlib plot generation.")
     run.set_defaults(func=run_mesh)
@@ -117,6 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--max-points", type=int, default=512)
     watch.add_argument("--timeout", type=float, default=12.0)
     watch.add_argument("--cache-dir")
+    watch.add_argument("--baseline")
+    watch.add_argument("--update-baseline")
+    watch.add_argument("--baseline-window", type=int, default=50)
     watch.add_argument("--stability-threshold", type=float, default=0.70)
     watch.add_argument("--no-plots", action="store_true")
     watch.set_defaults(func=watch_mesh)
@@ -126,11 +139,27 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--out", required=True)
     report.set_defaults(func=report_summary)
 
+    dashboard = sub.add_parser("dashboard", help="Render a self-contained HTML dashboard from a summary JSON.")
+    dashboard.add_argument("--summary", required=True)
+    dashboard.add_argument("--out", required=True)
+    dashboard.set_defaults(func=dashboard_summary)
+
     compare = sub.add_parser("compare", help="Compare two PulseMesh summary JSON files.")
     compare.add_argument("--before", required=True)
     compare.add_argument("--after", required=True)
     compare.add_argument("--out", required=True)
     compare.set_defaults(func=compare_runs)
+
+    baseline = sub.add_parser("baseline", help="Update a rolling baseline from a summary JSON.")
+    baseline.add_argument("--summary", required=True)
+    baseline.add_argument("--out", required=True)
+    baseline.add_argument("--window", type=int, default=50)
+    baseline.set_defaults(func=baseline_update)
+
+    validate = sub.add_parser("validate", help="Validate a profiles or summary JSON file.")
+    validate.add_argument("--profiles")
+    validate.add_argument("--summary")
+    validate.set_defaults(func=validate_file)
 
     providers = sub.add_parser("providers", help="List supported telemetry providers.")
     providers.set_defaults(func=list_providers)
@@ -155,10 +184,38 @@ def report_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def dashboard_summary(args: argparse.Namespace) -> int:
+    write_html_dashboard(Path(args.summary), Path(args.out))
+    print(json.dumps({"dashboard_path": args.out}, indent=2, sort_keys=True))
+    return 0
+
+
 def compare_runs(args: argparse.Namespace) -> int:
     write_compare_json(Path(args.before), Path(args.after), Path(args.out))
     print(json.dumps({"compare_path": args.out}, indent=2, sort_keys=True))
     return 0
+
+
+def baseline_update(args: argparse.Namespace) -> int:
+    baseline = update_baselines_from_summary(Path(args.summary), Path(args.out), window=args.window)
+    print(json.dumps({
+        "baseline_path": args.out,
+        "sensor_count": len(baseline.get("sensors", {})),
+        "updated_at": baseline.get("updated_at"),
+    }, indent=2, sort_keys=True))
+    return 0
+
+
+def validate_file(args: argparse.Namespace) -> int:
+    errors: list[str] = []
+    if args.profiles:
+        errors.extend(validate_profiles_file(Path(args.profiles)))
+    if args.summary:
+        errors.extend(validate_summary_file(Path(args.summary)))
+    if not args.profiles and not args.summary:
+        errors.append("provide --profiles or --summary")
+    print(json.dumps({"ok": not errors, "errors": errors}, indent=2, sort_keys=True))
+    return 0 if not errors else 1
 
 
 def main(argv: list[str] | None = None) -> int:

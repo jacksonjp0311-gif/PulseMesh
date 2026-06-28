@@ -39,7 +39,10 @@ PulseMesh does not claim prediction, safety, consciousness, autonomy, or product
 | `pulsemesh run` | Run one telemetry mesh and write artifacts |
 | `pulsemesh watch` | Run the mesh repeatedly on an interval |
 | `pulsemesh report` | Render a Markdown report from a run summary |
+| `pulsemesh dashboard` | Render a self-contained HTML dashboard from a run summary |
 | `pulsemesh compare` | Compare two run summaries and write drift deltas |
+| `pulsemesh baseline` | Update a rolling baseline from a summary |
+| `pulsemesh validate` | Validate profile and summary JSON shape |
 
 ### Metrics
 
@@ -101,6 +104,12 @@ Run a richer mesh with local system and network probes:
 python -m pulsemesh.cli run --profiles examples\profiles.rich.json --out runs --cache-dir runs\.cache
 ```
 
+Run with baseline annotation and update:
+
+```powershell
+python -m pulsemesh.cli run --profiles examples\profiles.rich.json --out runs --baseline runs\baseline.json --update-baseline runs\baseline.json
+```
+
 Watch mode:
 
 ```powershell
@@ -113,10 +122,22 @@ Create a Markdown report:
 python -m pulsemesh.cli report --summary runs\rich-demo\state\summary.json --out runs\rich-demo\report.md
 ```
 
+Create an HTML dashboard:
+
+```powershell
+python -m pulsemesh.cli dashboard --summary runs\rich-demo\state\summary.json --out runs\rich-demo\dashboard.html
+```
+
 Compare two runs:
 
 ```powershell
 python -m pulsemesh.cli compare --before runs\run-a\state\summary.json --after runs\run-b\state\summary.json --out runs\compare-a-b.json
+```
+
+Validate a profile file:
+
+```powershell
+python -m pulsemesh.cli validate --profiles examples\profiles.rich.json
 ```
 
 ## Profile Format
@@ -164,6 +185,7 @@ runs/
     state/
       summary.json
     report.md
+    dashboard.html
 ```
 
 The summary file is the primary agent-facing artifact.
@@ -177,6 +199,17 @@ PulseMesh is designed to keep downstream workflows moving:
 3. If no cache exists, emit deterministic synthetic telemetry.
 
 Every fallback is explicitly marked in `used_live_data` and `fallback_reason`.
+
+## Baselines
+
+Baselines are rolling per-sensor histories stored as JSON. They let a run answer not only "what happened now?" but also "how far is this from recent behavior?"
+
+```powershell
+python -m pulsemesh.cli baseline --summary runs\rich-demo\state\summary.json --out runs\baseline.json
+python -m pulsemesh.cli run --profiles examples\profiles.rich.json --out runs --baseline runs\baseline.json --update-baseline runs\baseline.json
+```
+
+When a baseline is supplied, each sensor receives `baseline.deltas` and `baseline.zscores` for tracked metrics such as health, anomaly, coherence, volatility, drift, and mean value.
 
 ## Development
 
@@ -192,8 +225,7 @@ PulseMesh is currently a local research/operator tool. The next professional mil
 
 - provider plugin interface
 - richer persistent baselines
-- HTML dashboard export
+- HTML dashboard polish
 - MQTT/serial ingestion
 - packaged CI workflow
 - schema validation for profiles and summaries
-

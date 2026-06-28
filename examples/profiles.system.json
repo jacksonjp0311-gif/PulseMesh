@@ -1,0 +1,34 @@
+{
+  "profiles": [
+    {
+      "id": "disk_free",
+      "label": "Disk Free Percent",
+      "provider": "system",
+      "variable": "disk_free_percent",
+      "path": ".",
+      "samples": 6
+    },
+    {
+      "id": "memory_used",
+      "label": "Memory Used Percent",
+      "provider": "system",
+      "variable": "memory_used_percent",
+      "samples": 6
+    },
+    {
+      "id": "process_count",
+      "label": "Process Count",
+      "provider": "system",
+      "variable": "process_count",
+      "samples": 6
+    },
+    {
+      "id": "uptime",
+      "label": "Uptime Hours",
+      "provider": "system",
+      "variable": "uptime_hours",
+      "samples": 6
+    }
+  ]
+}
+

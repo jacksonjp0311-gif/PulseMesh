@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -31,6 +32,18 @@ def fetch_system(profile: TelemetryProfile, max_points: int, _: float) -> Teleme
                 value = _windows_cpu_proxy()
         elif variable in {"process_count", "processes"}:
             value = float(_process_count())
+        elif variable in {"memory_used_percent", "memory"}:
+            value = _windows_numeric("(Get-CimInstance Win32_OperatingSystem | ForEach-Object { (($_.TotalVisibleMemorySize - $_.FreePhysicalMemory) / $_.TotalVisibleMemorySize) * 100 })")
+        elif variable in {"memory_free_percent"}:
+            value = _windows_numeric("(Get-CimInstance Win32_OperatingSystem | ForEach-Object { ($_.FreePhysicalMemory / $_.TotalVisibleMemorySize) * 100 })")
+        elif variable in {"battery_percent", "battery"}:
+            value = _windows_numeric("(Get-CimInstance Win32_Battery | Measure-Object -Property EstimatedChargeRemaining -Average).Average")
+        elif variable in {"uptime_hours", "uptime"}:
+            value = _uptime_hours()
+        elif variable in {"net_bytes_sent", "network_sent"}:
+            value = float(_network_bytes(sent=True))
+        elif variable in {"net_bytes_recv", "network_recv"}:
+            value = float(_network_bytes(sent=False))
         else:
             raise ValueError(f"unknown system variable: {variable}")
         values.append(value)
@@ -98,3 +111,28 @@ def _process_count() -> int:
     except Exception:
         return 0
 
+
+def _windows_numeric(script: str) -> float:
+    try:
+        cmd = ["powershell", "-NoProfile", "-Command", script]
+        out = subprocess.check_output(cmd, text=True, timeout=5).strip()
+        match = re.search(r"-?\d+(?:\.\d+)?", out)
+        return float(match.group(0)) if match else 0.0
+    except Exception:
+        return 0.0
+
+
+def _uptime_hours() -> float:
+    try:
+        return float(time.monotonic() / 3600.0)
+    except Exception:
+        return 0.0
+
+
+def _network_bytes(sent: bool) -> int:
+    try:
+        prop = "BytesSentPersec" if sent else "BytesReceivedPersec"
+        script = f"(Get-CimInstance Win32_PerfFormattedData_Tcpip_NetworkInterface | Measure-Object -Property {prop} -Sum).Sum"
+        return int(_windows_numeric(script))
+    except Exception:
+        return 0
