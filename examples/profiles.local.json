@@ -1,0 +1,51 @@
+{
+  "profiles": [
+    {
+      "id": "solar_xray",
+      "label": "Solar X-ray Flux",
+      "provider": "goes_xray",
+      "transform": "log10"
+    },
+    {
+      "id": "local_temperature",
+      "label": "Local Temperature",
+      "provider": "openmeteo",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "variable": "temperature_2m"
+    },
+    {
+      "id": "local_wind",
+      "label": "Local Wind",
+      "provider": "openmeteo",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "variable": "wind_speed_10m"
+    },
+    {
+      "id": "local_air_quality",
+      "label": "Local Air Quality",
+      "provider": "openmeteo_air",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "variable": "us_aqi"
+    },
+    {
+      "id": "regional_quakes",
+      "label": "Regional Earthquakes",
+      "provider": "usgs_earthquake",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "radius_km": 2500,
+      "days": 14,
+      "min_magnitude": 1.0
+    },
+    {
+      "id": "adaptive_demo",
+      "label": "Adaptive Synthetic Sensor",
+      "provider": "synthetic",
+      "variable": "pressure_msl"
+    }
+  ]
+}
+

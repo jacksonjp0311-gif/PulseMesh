@@ -1,0 +1,13 @@
+{
+  "profiles": [
+    {
+      "id": "bench_sensor",
+      "label": "Bench Sensor CSV",
+      "provider": "csv",
+      "path": "examples/sample_sensor.csv",
+      "time_column": "time",
+      "value_column": "value",
+      "unit": "arb"
+    }
+  ]
+}

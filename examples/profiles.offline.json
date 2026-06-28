@@ -1,0 +1,23 @@
+{
+  "profiles": [
+    {
+      "id": "offline_temp",
+      "label": "Offline Temperature Demo",
+      "provider": "synthetic",
+      "variable": "temperature_2m"
+    },
+    {
+      "id": "offline_solar",
+      "label": "Offline Solar Demo",
+      "provider": "synthetic",
+      "variable": "goes_xray"
+    },
+    {
+      "id": "offline_air",
+      "label": "Offline Air Quality Demo",
+      "provider": "synthetic",
+      "variable": "us_aqi"
+    }
+  ]
+}
+
